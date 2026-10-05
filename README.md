@@ -11,8 +11,6 @@ incremental cost and QALYs, the ICER, and the cost-effectiveness plane with will
 You supply the inputs as CSV files: the transition matrices, the cohort, entry states, costs and utilities, plus a
 `settings.yaml` file. Example files come with the package, so you can run it straight away.
 
-> **Status:** in development.
-
 ## Installation
 
 You need [R](https://cran.r-project.org) and, ideally, RStudio or Positron.
@@ -23,6 +21,13 @@ remotes::install_github("RonyEA/affirmoTM")
 ```
 
 R also installs the packages affirmoTM needs. Run the same line again to update.
+
+To install a particular release, for example to repeat an earlier analysis, add its version (the releases are listed on
+the GitHub page):
+
+```r
+remotes::install_github("RonyEA/affirmoTM@v0.1.0")
+```
 
 ## Quick start
 
