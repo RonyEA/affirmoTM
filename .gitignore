@@ -1,0 +1,16 @@
+# Source files and scripts that build the shipped data (local only)
+data-raw/
+
+# R session files
+.Rhistory
+.RData
+.Rproj.user/
+
+# Quarto working files
+.quarto/
+
+# Results, regenerated on every run
+outputs/
+
+# A local analysis folder's inputs, if tm_example_inputs() is run at the top of the repository
+/inputs/

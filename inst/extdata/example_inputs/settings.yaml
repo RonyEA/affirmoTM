@@ -1,0 +1,41 @@
+# affirmoTM run settings.
+
+# Stratifier columns in the transition matrices (and the cohort, entry states, and optionally costs and
+# utilities). Every column of a matrix that is not `from` and not listed here is read as a state.
+# The age-group column must be called `agegrp`: it is the only stratifier that changes as patients age.
+# Any other name (for example `age_band`) is read as a fixed stratifier, so patients would keep their
+# entry age group for the whole horizon. Use `strata: []` for matrices without stratifiers.
+strata: [agegrp, sex, mm_cluster]
+
+# Seed for the random draws (entry states and yearly transitions), so a run can be repeated exactly.
+seed: 2026
+
+# Time horizon in cycles (years), counted from cycle 0 (2013). Everyone stops at the end of cycle
+# horizon - 1, so patients who enter later are followed for fewer years.
+horizon: 10
+
+# A patient who would pass the oldest age group (for example reach 110 when the oldest group is
+# 105-109) dies in that year, in this death state.
+age_limit_death_state: CurrentDeath
+
+# Annual discount rate for costs and QALYs (0.03 = 3%). Discounting runs from cycle 0 (2013) for
+# everyone: a year in cycle t counts 1 / (1 + rate)^t.
+discount_rate: 0.03
+
+# Number of times the whole simulation is run. Run r uses seed + r - 1, so every run differs and the
+# whole set can be repeated exactly. Each run gives one point on the cost-effectiveness plane.
+n_runs: 100
+
+# Events to count in the results. Each year a patient spends in one of the listed states counts as
+# one event. Deaths are counted automatically from the death states.
+events:
+  ischaemic_stroke:    [AIS, AIS_AB, PB_AIS, AIS_Death, AIS_AB_Death]
+  haemorrhagic_stroke: [AHS, AHS_AB, PB_AHS, AHS_Death, AHS_AB_Death]
+  major_bleed:         [AB, AIS_AB, AHS_AB, PS_AB, AB_Death, AIS_AB_Death, AHS_AB_Death]
+
+# Currency symbol used in printed results and plots.
+currency: "€"
+
+# Willingness-to-pay thresholds per QALY, drawn as lines on the cost-effectiveness plane. Points
+# below a line are cost-effective at that threshold. Use `wtp: []` for no lines.
+wtp: [20000, 30000, 50000]

@@ -1,0 +1,154 @@
+---
+title: "affirmoTM tutorial 3: settings"
+subtitle: "Each setting in settings.yaml, and how to change them"
+date: today
+format:
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    geometry: margin=2cm
+    fontsize: 10pt
+    code-overflow: wrap
+    pdf-engine: xelatex
+    fig-width: 7
+    fig-height: 4.5
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere,fontsize=\small}
+        \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+execute:
+  message: false
+  warning: true
+---
+
+```{r setup}
+#| include: false
+# Rendering this tutorial: load the package from the repository and work in a fresh, empty analysis folder.
+repo <- rprojroot::find_package_root_file()
+devtools::load_all(repo, quiet = TRUE)
+library(data.table)
+analysis <- file.path(tempdir(), "affirmoTM-tutorial-3")
+unlink(analysis, recursive = TRUE)
+dir.create(analysis)
+knitr::opts_knit$set(root.dir = analysis)
+knitr::opts_chunk$set(message = FALSE, dev = "cairo_pdf")
+if (!isTRUE(getOption("knitr.in.progress"))) setwd(analysis)
+options(width = 85)
+```
+
+This tutorial starts from a fresh analysis folder with the example input files (see tutorial 1):
+
+```{r start}
+#| eval: false
+library(affirmoTM)
+```
+
+```{r example-inputs}
+tm_example_inputs()
+```
+
+# The settings file
+
+`inputs/settings.yaml` holds the run settings, one per line, with comments:
+
+```{r settings-file}
+cat(readLines("inputs/settings.yaml"), sep = "\n")
+```
+
+| Setting | Example | What it does |
+|--------------------------|--------------------|------------------------------------------------------|
+| `strata` | `[agegrp, sex, mm_cluster]` | The stratifier columns of the input files. Every other matrix column, apart from `from`, is a state. `[]` for none |
+| `seed` | `2026` | The starting seed. Run *r* uses `seed + r - 1`, so results can be repeated exactly |
+| `horizon` | `10` | The number of yearly cycles, counted from cycle 0 for everyone |
+| `age_limit_death_state` | `CurrentDeath` | The death state of patients who would pass the oldest age group |
+| `discount_rate` | `0.03` | The yearly discount rate for costs and QALYs, as a proportion (`0.03` for 3%). A year in cycle *t* counts 1 / (1 + rate)^*t* |
+| `n_runs` | `100` | The number of runs; each run is one point on the CE plane |
+| `events` | lists of states | The states counted as each event in the results |
+| `currency` | `"€"` | The currency symbol in the printed results and the plot |
+| `wtp` | `[20000, 30000, 50000]` | Willingness-to-pay thresholds per QALY, drawn as lines on the CE plane. `[]` for none |
+
+`tm_read_settings()` reads the file and checks every setting. A wrong type or value stops with a message naming the
+setting, and a name the package does not know, such as a typo, gives a warning.
+
+In R, the settings are a list:
+
+```{r read-settings}
+settings <- tm_read_settings()
+str(settings)
+```
+
+# Changing settings
+
+There are two ways:
+
+- **Edit `inputs/settings.yaml`** and run `tm_run()` again. This is the way to change the analysis itself.
+- **Change the list in R** and pass it to `tm_run()`, which is handy for trying things out; the file stays as it is.
+
+The examples below change the list in R, with 20 runs each to keep them quick. Every call to `tm_run()` overwrites
+`outputs/`.
+
+```{r base}
+base <- tm_read_settings()
+base$n_runs <- 20
+base_results <- tm_run(base)
+```
+
+## Discount rate
+
+```{r discount}
+no_discounting <- base
+no_discounting$discount_rate <- 0
+no_discounting_results <- tm_run(no_discounting)
+```
+
+## Time horizon
+
+The example cohort enters between cycles 0 and 9. With a 5-year horizon, the patients who would enter in cycles 5 to 9
+fall outside it, and `tm_run()` leaves them out with a warning:
+
+```{r horizon}
+five_years <- base
+five_years$horizon <- 5
+five_years_results <- tm_run(five_years)
+```
+
+`intervention_cost.csv` lists years 1 to 9, which covers a 5-year horizon too: later years are allowed and not used.
+
+## Side by side
+
+```{r compare}
+rbind(cbind(setting = "3% discount, 10 years", base_results$comparison),
+      cbind(setting = "no discounting, 10 years", no_discounting_results$comparison),
+      cbind(setting = "3% discount, 5 years", five_years_results$comparison)
+)[, .(setting, delta_cost, delta_qaly, icer, quadrant)]
+```
+
+## Willingness-to-pay lines
+
+`wtp` only changes the lines on the CE plane:
+
+```{r wtp}
+other_lines <- base
+other_lines$wtp <- c(10000, 25000)
+plot(tm_run(other_lines))
+```
+
+## Seed and number of runs
+
+The same seed always gives the same results; another seed gives another set of runs:
+
+```{r seed}
+two_runs <- base
+two_runs$n_runs <- 2
+first <- tm_run(two_runs)$comparison
+again <- tm_run(two_runs)$comparison
+two_runs$seed <- 1
+other_seed <- tm_run(two_runs)$comparison
+rbind(cbind(run = "seed 2026", first), cbind(run = "seed 2026 again", again),
+      cbind(run = "seed 1", other_seed))[, .(run, delta_cost, delta_qaly)]
+```
+
+More runs give more points on the CE plane and a steadier mean. Each run of the 5,000 example patients takes about
+a quarter of a second.

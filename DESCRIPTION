@@ -1,0 +1,27 @@
+Package: affirmoTM
+Title: Disease-State Transition Model for the AFFIRMO iABC Pathway Cost-Effectiveness Analysis
+Version: 0.0.0.9000
+Authors@R: c(
+    person("Rony Lizzy", "Sunny", email = "ronylizsunny@gmail.com", role = c("aut", "cre")),
+    person("Chris", "Kypridemos", role = "aut")
+  )
+Description: An annual-cycle disease-state transition model for adults aged 65
+    and over with atrial fibrillation and multimorbidity, ported as a
+    standalone package from the transition model of the IMPACTaf model.
+    It compares the AFFIRMO integrated ABC (iABC) pathway with usual care
+    using user-supplied transition probabilities, costs and utilities, and
+    reports incremental cost-effectiveness ratios and the cost-effectiveness
+    plane.
+License: GPL (>= 3)
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+Suggests: 
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.1.0
+Imports: 
+    data.table,
+    ggplot2 (>= 4.0.0),
+    MASS,
+    withr,
+    yaml

@@ -1,0 +1,160 @@
+---
+title: "affirmoTM tutorial 5: results"
+subtitle: "The results object, the comparison, the CE plane and the output files"
+date: today
+format:
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    geometry: margin=2cm
+    fontsize: 10pt
+    code-overflow: wrap
+    pdf-engine: xelatex
+    fig-width: 7
+    fig-height: 4.5
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere,fontsize=\small}
+        \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+execute:
+  message: false
+  warning: true
+---
+
+```{r setup}
+#| include: false
+# Rendering this tutorial: load the package from the repository and work in a fresh, empty analysis folder.
+repo <- rprojroot::find_package_root_file()
+devtools::load_all(repo, quiet = TRUE)
+library(data.table)
+analysis <- file.path(tempdir(), "affirmoTM-tutorial-5")
+unlink(analysis, recursive = TRUE)
+dir.create(analysis)
+knitr::opts_knit$set(root.dir = analysis)
+knitr::opts_chunk$set(message = FALSE, dev = "cairo_pdf")
+if (!isTRUE(getOption("knitr.in.progress"))) setwd(analysis)
+options(width = 85)
+```
+
+This tutorial starts from a fresh analysis folder with the example input files, and runs the model (see tutorial 1):
+
+```{r start}
+#| eval: false
+library(affirmoTM)
+```
+
+```{r run}
+tm_example_inputs()
+results <- tm_run()
+```
+
+# The results object
+
+`tm_run()` returns the results and prints a summary:
+
+```{r print}
+results
+```
+
+The results are a list:
+
+```{r names}
+names(results)
+```
+
+| Element | What it holds |
+|------------------------------|--------------------------------------------------|
+| `by_run` | One row per run and arm: the summary of each run |
+| `summary` | The mean over the runs, one row per arm |
+| `comparison_by_run` | iABC minus usual care, one row per run |
+| `comparison` | The mean differences, the ICER and its quadrant |
+| `n_runs`, `currency`, `wtp` | The settings used |
+
+# Each arm
+
+```{r summary}
+results$summary
+```
+
+| Column | Meaning |
+|------------------------------------|--------------------------------------------------|
+| `patients` | Patients who enter within the horizon |
+| `cost_total`, `qaly_total` | Discounted totals for the whole cohort |
+| `intervention_cost_total` | The discounted intervention cost within `cost_total` |
+| `cost_per_patient` | `cost_total` divided by the number of patients |
+| `qaly_per_patient` | `qaly_total` divided by the number of patients |
+| `intervention_cost_per_patient` | `intervention_cost_total` divided by the number of patients |
+| one column per event | The years spent in that event's states (see `events` in `settings.yaml`) |
+| `deaths` | The number of patients who died |
+
+Costs and QALYs are per patient; events and deaths are counts for the whole cohort.
+
+# The comparison
+
+iABC minus usual care, as the mean over the runs:
+
+```{r comparison}
+results$comparison
+```
+
+- `delta_cost` and `delta_qaly`: the incremental cost and QALYs per patient.
+- `delta_intervention_cost`: the part of `delta_cost` that is intervention cost.
+- the other `delta_` columns: the difference in each event count and in deaths, for the whole cohort.
+- `icer`: the mean incremental cost divided by the mean incremental QALYs.
+- `quadrant`: where the result lies on the CE plane. It says how to read the ICER:
+
+| `quadrant` | iABC compared with usual care | Printed as |
+|--------------------------|----------------------------------|----------------------|
+| `costlier, more QALYs` | Costs more, gives more QALYs | € ... per QALY gained |
+| `dominant` | Costs less (or the same), gives more QALYs | iABC dominant |
+| `dominated` | Costs more (or the same), gives fewer QALYs | iABC dominated |
+| `cheaper, fewer QALYs` | Costs less, gives fewer QALYs | € ... saved per QALY lost |
+| `no QALY difference` | The same QALYs | undefined |
+
+
+The same differences for each run:
+
+```{r by-run}
+head(results$comparison_by_run)
+results$comparison_by_run[, .(mean = mean(delta_qaly), lowest = min(delta_qaly), highest = max(delta_qaly))]
+```
+
+# The cost-effectiveness plane
+
+```{r plane}
+plot(results)
+```
+
+- Each blue point is one run: incremental QALYs per patient across, incremental cost per patient up.
+- The diamond is the mean across the runs, labelled with the result in the words of its quadrant.
+- The dashed lines are the willingness-to-pay thresholds in `wtp`. Points below a line are cost-effective at that
+  threshold.
+- The runs use the same inputs and differ only in their random numbers, so the spread of the points shows how much
+  a single run varies by chance.
+
+`plot(results)` returns the plot, so it can be saved or changed with ggplot2:
+
+```{r save-plot}
+#| eval: false
+p <- plot(results)
+ggplot2::ggsave("my_ce_plane.pdf", p, width = 7, height = 5)
+```
+
+# The output files
+
+Every call to `tm_run()` writes these files to `outputs/`:
+
+| File | What it holds |
+|----------------------------|--------------------------------------------------|
+| `summary_by_run.csv` | One row per run and arm (`results$by_run`) |
+| `summary.csv` | The mean per arm (`results$summary`) |
+| `comparison_by_run.csv` | iABC minus usual care, one row per run (`results$comparison_by_run`) |
+| `comparison.csv` | The mean differences, the ICER and its quadrant (`results$comparison`) |
+| `ce_plane.png` | The CE plane |
+
+```{r files}
+list.files("outputs")
+fread("outputs/comparison.csv")
+```

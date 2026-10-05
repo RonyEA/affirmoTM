@@ -1,0 +1,270 @@
+---
+title: "affirmoTM tutorial 2: input files"
+subtitle: "Each input file: its layout, its rules, and how to look at it"
+date: today
+format:
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    geometry: margin=2cm
+    fontsize: 10pt
+    code-overflow: wrap
+    pdf-engine: xelatex
+    fig-width: 7
+    fig-height: 4.5
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere,fontsize=\small}
+        \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+execute:
+  message: false
+  warning: true
+---
+
+```{r setup}
+#| include: false
+# Rendering this tutorial: load the package from the repository and work in a fresh, empty analysis folder.
+repo <- rprojroot::find_package_root_file()
+devtools::load_all(repo, quiet = TRUE)
+library(data.table)
+analysis <- file.path(tempdir(), "affirmoTM-tutorial-2")
+unlink(analysis, recursive = TRUE)
+dir.create(analysis)
+knitr::opts_knit$set(root.dir = analysis)
+knitr::opts_chunk$set(message = FALSE, dev = "cairo_pdf")
+if (!isTRUE(getOption("knitr.in.progress"))) setwd(analysis)
+options(width = 85)
+```
+
+This tutorial starts from a fresh analysis folder with the example input files (see tutorial 1):
+
+```{r start}
+#| eval: false
+library(affirmoTM)
+```
+
+```{r example-inputs}
+tm_example_inputs()
+```
+
+# The input files
+
+All inputs live in `inputs/`, with fixed names. Your own files must use the same names and layouts.
+
+| File | What it holds | Read with |
+|----------------------------------|------------------------------------|--------------------------|
+| `settings.yaml` | Run settings (tutorial 3) | `tm_read_settings()` |
+| `transition_matrix_usual_care.csv`, `transition_matrix_iabc.csv` | Yearly transition probabilities, one matrix per arm | `tm_read_matrices()` |
+| `cohort.csv` | The patients | `tm_read_cohort()` |
+| `entry_states.csv` | The chance of each state in a patient's first year | `tm_read_entry_states()` |
+| `costs.csv` | The cost of a year in each state, per arm | `tm_read_costs()` |
+| `utilities.csv` | The QALY weight of a year in each state, per arm | `tm_read_utilities()` |
+| `intervention_cost.csv` | The cost of delivering iABC, by year after entry | `tm_read_intervention_cost()` |
+
+Each reader checks its file and stops with a message naming the file and the problem. `tm_run()` reads and checks
+every file before it runs anything.
+
+```{r settings}
+settings <- tm_read_settings()
+```
+
+# Transition matrices
+
+```{r matrices}
+matrices <- tm_read_matrices(settings)
+matrices$usual_care
+```
+
+The probabilities are in `probs`: one row per stratum (age group, sex, cluster) and current state (`from`), and one
+column per state, holding the probability of being in that state next year.
+
+```{r matrices-probs}
+usual_care <- matrices$usual_care$probs
+states <- matrices$usual_care$states
+usual_care[1:3, 1:9]
+```
+
+The rules, and a quick way to look at each one:
+
+- **Every row sums to 1.**
+
+  ```{r rule-sum}
+  usual_care[, range(rowSums(.SD)), .SDcols = states]
+  ```
+
+- **Every stratum has a row for every state** (19 here):
+
+  ```{r rule-complete}
+  usual_care[, .N, by = .(agegrp, sex, mm_cluster)][, range(N)]
+  ```
+
+- **Every state has its own rows, death states included.** A death state's rows go back to the same state with
+  probability 1; that is how the package recognises death states. For example:
+
+  ```{r rule-death}
+  usual_care[from == "CurrentDeath", unique(CurrentDeath)]
+  ```
+
+- **The stratifier columns are the ones listed under `strata` in `settings.yaml`.** The age-group column must be called
+  `agegrp`: it is the only stratifier that changes as patients age. Age groups are written as ranges, without gaps:
+
+  ```{r rule-age}
+  unique(usual_care$agegrp)
+  ```
+
+- **Both matrices have the same states and the same strata.**
+- **The probabilities themselves are your responsibility.** The package checks the layout, not the numbers. When
+  `tm_run()` starts, it lists the death states it found; check that no living state is among them.
+
+# Cohort
+
+```{r cohort}
+cohort <- tm_read_cohort(settings, matrices)
+cohort
+```
+
+| Column | Meaning |
+|----------------------|------------------------------------------------------|
+| `id` | A unique patient id |
+| `age` | Age in whole years in the patient's entry cycle (not at cycle 0) |
+| `sex`, `mm_cluster` | One column for each stratifier other than `agegrp` |
+| `entry_cycle` | The cycle in which the patient enters; 0 is the first year |
+| `agegrp` | Optional: if it is missing, it is worked out from `age` |
+
+Patients can enter in different cycles:
+
+```{r cohort-entry}
+cohort[, .N, keyby = entry_cycle]
+```
+
+The rules:
+
+- ages lie within the matrices' age groups, and every value of `sex` and `mm_cluster` appears in the matrices;
+- the matrices have rows for every stratum a patient reaches as they age;
+- patients who enter in cycle `horizon` or later are left out, with a warning.
+
+# Entry states
+
+The chance of each state in a patient's entry year, one row per stratum. Both arms start from the same entry states.
+
+```{r entry-states}
+entry_states <- tm_read_entry_states(settings, matrices)
+entry_states[agegrp == "75-79" & sex == "women" & mm_cluster == "Cardiovascular"]
+```
+
+Every row sums to 1, and every patient's entry stratum needs a row:
+
+```{r entry-rule}
+entry_states[, range(rowSums(.SD)), .SDcols = setdiff(names(entry_states), settings$strata)]
+```
+
+# Costs
+
+The cost of a year spent in each state, one column per arm. Every state needs a row, death states included (the cost
+of the year of death). Costs are 0 or more.
+
+```{r costs}
+costs <- tm_read_costs(settings, matrices)
+costs
+```
+
+- **Entry year:** both arms are charged the `usual_care` cost, because both arms are in the same state. The `iabc` cost
+  applies from the year after entry.
+- **The `iabc` column:** use it for differences in care that depend on the state, such as medication. The cost of
+  delivering the programme itself goes in `intervention_cost.csv`.
+
+# Utilities
+
+The QALY weight of a year spent in each living state, one column per arm. Utilities are at most 1. Death states count
+0 in the year of death, so they can be left out. In the entry year both arms take the `usual_care` utility.
+
+```{r utilities}
+utilities <- tm_read_utilities(settings, matrices)
+utilities
+```
+
+# Intervention cost
+
+The cost of delivering iABC to one patient in each year after their entry (`year` 1 is the first year after entry),
+one row for every year from 1 to `horizon - 1`. It is the same whatever the patient's state, and is charged to iABC
+patients who are alive in that year.
+
+```{r intervention}
+intervention <- tm_read_intervention_cost(settings)
+intervention
+```
+
+# Values that change over time: a `year` column
+
+A matrix, `costs.csv` or `utilities.csv` can change with the years since a patient's entry. Add a `year` column (1 is
+the first year after entry) and give a full set of rows for every year from 1 to `horizon - 1`. In a matrix, the rows
+for year *k* drive the move into year *k* after entry.
+
+For example, an iABC effect that lasts one year: iABC's own probabilities in year 1, and usual care's in years 2 to 9.
+
+```{r year-build}
+usual_care_file <- fread("inputs/transition_matrix_usual_care.csv")
+iabc_file <- fread("inputs/transition_matrix_iabc.csv")
+later_years <- usual_care_file[rep(seq_len(.N), 8)][, year := rep(2:9, each = nrow(usual_care_file))]
+iabc_by_year <- rbind(iabc_file[, year := 1L], later_years)
+iabc_by_year[, .N, keyby = year]
+fwrite(iabc_by_year, "inputs/transition_matrix_iabc.csv")
+```
+
+The package reads it as a matrix that changes by year:
+
+```{r year-read}
+tm_read_matrices(settings)$iabc
+```
+
+The result, next to the example's, with 20 runs each:
+
+```{r year-run}
+twenty_runs <- settings
+twenty_runs$n_runs <- 20
+one_year <- tm_run(twenty_runs)$comparison
+tm_example_inputs(overwrite = TRUE)  # put the example files back
+every_year <- tm_run(twenty_runs)$comparison
+rbind(cbind(effect = "every year", every_year[, .(delta_cost, delta_qaly, icer, quadrant)]),
+      cbind(effect = "first year only", one_year[, .(delta_cost, delta_qaly, icer, quadrant)]))
+```
+
+# Costs and utilities that differ between patients
+
+`costs.csv` and `utilities.csv` can also have stratifier columns, any of the `strata` in `settings.yaml`. Each
+patient-year then uses the patient's stratum in that year: their current age group, as they age, and their sex and
+cluster. Every stratum needs a row for every state.
+
+For example, utilities that fall with age and are lower for women, and costs that differ by cluster. The factors are
+invented for this example.
+
+```{r stratum-build}
+utilities_file <- fread("inputs/utilities.csv")
+age_groups <- unique(usual_care$agegrp)
+by_age_sex <- utilities_file[, .(agegrp = age_groups), by = .(state, usual_care, iabc)]
+by_age_sex <- by_age_sex[, .(sex = c("men", "women")), by = .(state, usual_care, iabc, agegrp)]
+by_age_sex[, factor := 1 - 0.03 * (as.integer(sub("-.*", "", agegrp)) - 65) / 5 - 0.02 * (sex == "women")]
+by_age_sex[, `:=`(usual_care = usual_care * factor, iabc = iabc * factor)][, factor := NULL]
+by_age_sex[state == "NoEvent" & agegrp %in% c("65-69", "85-89")]
+
+costs_file <- fread("inputs/costs.csv")
+cluster_factor <- c(Cardiovascular = 1.2, Complex = 1.5, Eye = 1.0, Metabolic = 1.1, MSK = 1.0,
+                    Neuropsychiatric = 1.2, Unspecified = 1.0)
+by_cluster <- costs_file[, .(mm_cluster = names(cluster_factor)), by = .(state, usual_care, iabc)]
+by_cluster[, `:=`(usual_care = usual_care * cluster_factor[mm_cluster], iabc = iabc * cluster_factor[mm_cluster])]
+by_cluster[state == "NoEvent"]
+
+fwrite(by_age_sex, "inputs/utilities.csv")
+fwrite(by_cluster, "inputs/costs.csv")
+```
+
+The result, next to the example's:
+
+```{r stratum-run}
+by_stratum <- tm_run(twenty_runs)$comparison
+tm_example_inputs(overwrite = TRUE)  # put the example files back
+rbind(cbind(values = "the same for everyone", every_year[, .(delta_cost, delta_qaly, icer, quadrant)]),
+      cbind(values = "by age, sex and cluster", by_stratum[, .(delta_cost, delta_qaly, icer, quadrant)]))
+```

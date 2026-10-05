@@ -1,0 +1,14 @@
+state,usual_care,iabc
+NoEvent,0.75,0.75
+AB,0.65,0.65
+AHS,0.5,0.5
+AIS,0.55,0.55
+PB,0.7,0.7
+PHS,0.6,0.6
+PIS,0.65,0.65
+AHS_AB,0.4,0.4
+AIS_AB,0.45,0.45
+PB_AHS,0.47,0.47
+PB_AIS,0.52,0.52
+PS_AB,0.55,0.55
+PS_PB,0.6,0.6

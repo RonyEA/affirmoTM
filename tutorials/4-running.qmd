@@ -1,0 +1,154 @@
+---
+title: "affirmoTM tutorial 4: running the model"
+subtitle: "What tm_run() does, and the steps of a run one at a time"
+date: today
+format:
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    geometry: margin=2cm
+    fontsize: 10pt
+    code-overflow: wrap
+    pdf-engine: xelatex
+    fig-width: 7
+    fig-height: 4.5
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere,fontsize=\small}
+        \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+execute:
+  message: false
+  warning: true
+---
+
+```{r setup}
+#| include: false
+# Rendering this tutorial: load the package from the repository and work in a fresh, empty analysis folder.
+repo <- rprojroot::find_package_root_file()
+devtools::load_all(repo, quiet = TRUE)
+library(data.table)
+analysis <- file.path(tempdir(), "affirmoTM-tutorial-4")
+unlink(analysis, recursive = TRUE)
+dir.create(analysis)
+knitr::opts_knit$set(root.dir = analysis)
+knitr::opts_chunk$set(message = FALSE, dev = "cairo_pdf")
+if (!isTRUE(getOption("knitr.in.progress"))) setwd(analysis)
+options(width = 85)
+```
+
+This tutorial starts from a fresh analysis folder with the example input files (see tutorial 1):
+
+```{r start}
+#| eval: false
+library(affirmoTM)
+```
+
+```{r example-inputs}
+tm_example_inputs()
+```
+
+# What `tm_run()` does
+
+`tm_run()` runs the whole model with the files in `inputs/`:
+
+1. reads and checks every input file and setting; any problem stops it before anything is run or written;
+2. lists the death states it found in the matrices;
+3. runs the model `n_runs` times, run *r* with seed `seed + r - 1`;
+4. averages the runs, compares the arms, and writes the results to `outputs/`.
+
+While it runs, it reports the death states and its progress (here with 20 runs):
+
+```{r run-messages}
+#| message: true
+settings <- tm_read_settings()
+settings$n_runs <- 20
+results <- tm_run(settings)
+```
+
+Check that no living state is among the death states.
+
+## Run time
+
+The run time grows with the number of runs and the number of patients:
+
+```{r run-time}
+system.time(tm_run(settings))
+```
+
+## The same seed, the same results
+
+```{r reproducible}
+again <- tm_run(settings)
+identical(results$by_run, again$by_run)
+```
+
+## Outputs
+
+Every call writes, and overwrites, the files in `outputs/`:
+
+```{r outputs}
+list.files("outputs")
+```
+
+Tutorial 5 explains the results.
+
+# The steps of a run, one at a time
+
+`tm_run()` calls the functions below, once per run. They can also be used one at a time, for example to look at one
+run in detail. Each takes the `settings` list. Tutorial 6 follows a run step by step in more detail.
+
+**Read the inputs.** Each reader checks its file:
+
+```{r read}
+matrices <- tm_read_matrices(settings)
+cohort <- tm_read_cohort(settings, matrices)
+entry_states <- tm_read_entry_states(settings, matrices)
+costs <- tm_read_costs(settings, matrices)
+utilities <- tm_read_utilities(settings, matrices)
+intervention <- tm_read_intervention_cost(settings)
+death <- matrices$usual_care$death
+```
+
+**Entry states.** `tm_assign_entry_states()` draws each patient's state in their entry year. Both arms start from
+these states:
+
+```{r assign}
+patients <- tm_assign_entry_states(cohort, entry_states, settings, seed = settings$seed)
+patients[, .N, keyby = entry_state]
+```
+
+**Simulation.** `tm_simulate()` moves each patient through both arms, one year at a time, until they die or the
+horizon ends. One row per patient, arm and year:
+
+```{r simulate}
+sim <- tm_simulate(patients, matrices, settings, seed = settings$seed)
+sim[id == 1]
+```
+
+**Costs and QALYs.** `tm_add_outcomes()` gives each year its cost, intervention cost, QALY and discount factor:
+
+```{r outcomes}
+out <- tm_add_outcomes(sim, costs, utilities, intervention, death, settings)
+out[id == 1, .(arm, cycle, state, cost, intervention_cost, qaly, discount)]
+```
+
+**Summary.** `tm_summarise()` adds up each arm:
+
+```{r summarise}
+one_run <- tm_summarise(out, death, settings)
+one_run[, .(arm, patients, cost_per_patient, qaly_per_patient, deaths)]
+```
+
+**Comparison.** `tm_compare()` takes iABC minus usual care:
+
+```{r compare}
+tm_compare(one_run[, `:=`(run = 1L, seed = settings$seed)])$overall
+```
+
+This is exactly the first run of `tm_run()`, which uses the same seed:
+
+```{r same-as-run-1}
+results$by_run[run == 1, .(arm, patients, cost_per_patient, qaly_per_patient, deaths)]
+```

@@ -1,0 +1,537 @@
+---
+title: "affirmoTM tutorial 6: walkthrough"
+subtitle: "One run followed in detail: patients, costs, QALYs and how the arms behave over time"
+date: today
+format:
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    geometry: margin=2cm
+    fontsize: 10pt
+    code-overflow: wrap
+    pdf-engine: xelatex
+    fig-width: 7
+    fig-height: 4.5
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere,fontsize=\small}
+        \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+execute:
+  message: false
+  warning: true
+---
+
+```{r setup}
+#| include: false
+# Rendering this tutorial: load the package from the repository and work in a fresh, empty analysis folder.
+repo <- rprojroot::find_package_root_file()
+devtools::load_all(repo, quiet = TRUE)
+library(data.table)
+library(ggplot2)
+analysis <- file.path(tempdir(), "affirmoTM-tutorial-6")
+unlink(analysis, recursive = TRUE)
+dir.create(analysis)
+knitr::opts_knit$set(root.dir = analysis)
+knitr::opts_chunk$set(message = FALSE, dev = "cairo_pdf")
+if (!isTRUE(getOption("knitr.in.progress"))) setwd(analysis)
+options(width = 85)
+```
+
+# About this tutorial
+
+This tutorial follows the example inputs through the model: what goes in, what each function produces, and how the
+two arms behave over time.
+
+- **Inputs:** each one is read with the package's own reader and explored with short `data.table` commands.
+- **One run, followed step by step:** a few patients are followed year by year, with their costs and QALYs worked out
+  by hand.
+- **Over time:** the cohort is followed across the horizon in both arms.
+- **The full model:** `tm_run()` at the end.
+
+It starts from a fresh analysis folder with the example input files (see tutorial 1):
+
+```{r start}
+#| eval: false
+library(affirmoTM)
+```
+
+```{r example-inputs}
+tm_example_inputs()
+```
+
+# The inputs
+
+## Settings
+
+```{r settings}
+settings <- tm_read_settings()
+str(settings)
+```
+
+## Transition matrices
+
+`tm_read_matrices()` reads both matrices and checks them. Each one is a `tm_matrix`; printing it gives an overview:
+
+```{r matrices}
+matrices <- tm_read_matrices(settings)
+matrices$usual_care
+```
+
+The probabilities are in `probs`, one row per stratum and current state (`from`), and one column per next state:
+
+```{r matrices-probs}
+usual_care <- matrices$usual_care$probs
+iabc <- matrices$iabc$probs
+states <- matrices$usual_care$states
+death <- matrices$usual_care$death
+strata <- settings$strata
+age_order <- unique(usual_care$agegrp)[order(as.integer(sub("-.*", "", unique(usual_care$agegrp))))]  # for plots
+arm_colours <- c(usual_care = "grey35", iabc = "#2a78d6")
+dim(usual_care)
+usual_care[1:3, 1:10]
+```
+
+Every row sums to 1, in both matrices:
+
+```{r rows-sum}
+usual_care[, .(min = min(rowSums(.SD)), max = max(rowSums(.SD))), .SDcols = states]
+iabc[, .(min = min(rowSums(.SD)), max = max(rowSums(.SD))), .SDcols = states]
+```
+
+The matrices are easier to explore in long form, one row per move, with both arms side by side:
+
+```{r long}
+long_usual_care <- melt(usual_care, id.vars = c(strata, "from"), variable.name = "to", value.name = "p",
+                        variable.factor = FALSE)
+long_iabc <- melt(iabc, id.vars = c(strata, "from"), variable.name = "to", value.name = "p", variable.factor = FALSE)
+moves <- long_usual_care[long_iabc, on = c(strata, "from", "to"),
+                         .(agegrp, sex, mm_cluster, from, to, usual_care = p, iabc = i.p)]
+moves
+```
+
+A death state's rows always go back to the same state. In every stratum, the only move out of a death state is to
+itself, with probability 1:
+
+```{r death-rows}
+moves[from %in% death & usual_care > 0, .(rows = .N, probability = unique(usual_care)), by = .(from, to)]
+```
+
+The moves that are possible from each state, i.e. with a probability above 0 in at least one stratum:
+
+```{r possible-moves}
+knitr::kable(moves[usual_care > 0, .(possible_next_states = paste(unique(to), collapse = ", ")), by = from])
+```
+
+The same patient under each arm: a man aged 75–79 in the Unspecified cluster, without an event this year. Each number
+is the probability of being in that state next year:
+
+```{r one-patient-row}
+moves[agegrp == "75-79" & sex == "men" & mm_cluster == "Unspecified" & from == "NoEvent" & usual_care > 0,
+      .(to, usual_care, iabc, difference = iabc - usual_care)]
+```
+
+The yearly probability of death for patients without an event, by age group, sex and cluster:
+
+```{r death-by-age}
+#| fig-height: 5.5
+death_by_age <- moves[from == "NoEvent" & to %in% death, .(death = sum(usual_care)), by = .(agegrp, sex, mm_cluster)]
+ggplot(death_by_age, aes(factor(agegrp, levels = age_order), death, colour = sex, group = sex)) +
+  geom_line() + geom_point(size = 1) +
+  facet_wrap(~mm_cluster, ncol = 4) +
+  labs(x = "Age group", y = "Probability of death within a year", colour = NULL) +
+  theme_minimal(base_size = 10) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5), legend.position = "top")
+```
+
+The yearly probability of a stroke for patients without an event, under each arm, for the Unspecified cluster:
+
+```{r stroke-by-age}
+stroke_states <- unique(unlist(settings$events[c("ischaemic_stroke", "haemorrhagic_stroke")]))
+stroke_by_age <- moves[from == "NoEvent" & to %in% stroke_states & mm_cluster == "Unspecified",
+                       .(usual_care = sum(usual_care), iabc = sum(iabc)), by = .(agegrp, sex)]
+ggplot(melt(stroke_by_age, id.vars = c("agegrp", "sex"), variable.name = "arm", value.name = "stroke"),
+       aes(factor(agegrp, levels = age_order), stroke, colour = arm, group = arm)) +
+  geom_line() + geom_point(size = 1) + facet_wrap(~sex) + scale_colour_manual(values = arm_colours, breaks = names(arm_colours)) +
+  labs(x = "Age group", y = "Probability of a stroke within a year", colour = NULL) +
+  theme_minimal(base_size = 10) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5), legend.position = "top")
+```
+
+## Cohort
+
+`tm_read_cohort()` reads the patients and works out each patient's age group from their age:
+
+```{r cohort}
+cohort <- tm_read_cohort(settings, matrices)
+cohort
+```
+
+Patients enter in different cycles. Cycle 0 (2013) holds everyone already living with AF when the data start, and
+later cycles hold new patients:
+
+```{r cohort-entry}
+cohort[, .(patients = .N, mean_age = round(mean(age), 1)), keyby = entry_cycle]
+```
+
+```{r cohort-groups}
+cohort[, .N, keyby = sex]
+cohort[, .N, keyby = mm_cluster]
+```
+
+```{r cohort-age}
+ggplot(cohort, aes(age)) +
+  geom_histogram(binwidth = 1, fill = "grey60", colour = "white") +
+  facet_wrap(~sex) +
+  labs(x = "Age at entry", y = "Patients") +
+  theme_minimal(base_size = 10)
+```
+
+## Entry states
+
+`tm_read_entry_states()` reads the probability of each state in a patient's entry year, one row per stratum. Every row
+sums to 1:
+
+```{r entry-states}
+entry_states <- tm_read_entry_states(settings, matrices)
+entry_cols <- setdiff(names(entry_states), strata)
+entry_states[, .(rows = .N, min = min(rowSums(.SD)), max = max(rowSums(.SD))), .SDcols = entry_cols]
+entry_states[agegrp == "75-79" & sex == "women" & mm_cluster == "Cardiovascular"]
+```
+
+## Costs, utilities and the intervention cost
+
+```{r values}
+costs <- tm_read_costs(settings, matrices)
+utilities <- tm_read_utilities(settings, matrices)
+intervention <- tm_read_intervention_cost(settings)
+costs
+utilities
+intervention
+```
+
+- **Costs:** the cost of a year spent in each state, per arm.
+- **Utilities:** the QALY weight of a year in each state, per arm. Death states count 0.
+- **Intervention cost:** the cost of delivering iABC to one patient in each year after entry. It is charged to iABC
+  patients who are alive in that year.
+
+# One run, step by step
+
+`tm_run()` repeats these steps once per run. Here they are done one at a time for the first run, which uses the seed
+from `settings.yaml`:
+
+```{r seed}
+seed <- settings$seed
+seed
+```
+
+## Entry states
+
+`tm_assign_entry_states()` draws each patient's state in their entry year from their row of the entry-state table. Both
+arms start from these states.
+
+```{r assign}
+patients <- tm_assign_entry_states(cohort, entry_states, settings, seed = seed)
+patients[, .N, keyby = entry_state][order(-N)]
+```
+
+## The simulation
+
+`tm_simulate()` moves every patient through both arms one year at a time. In each later year, it draws the patient's
+next state from their matrix row: their arm, sex and cluster, their age group in the previous year, and their previous
+state. The result has one row per patient, arm and year, from the entry year up to and including the year of death:
+
+```{r simulate}
+sim <- tm_simulate(patients, matrices, settings, seed = seed)
+setorder(sim, arm, id, cycle)
+sim
+sim[, .(patients = uniqueN(id), patient_years = .N, deaths = sum(state %in% death)), by = arm]
+```
+
+## Following five patients
+
+Each patient's path, written as one line per arm, makes it easy to pick patients with different stories:
+
+```{r paths}
+paths <- sim[, .(path = paste(state, collapse = " > "), entered = min(cycle), last_state = last(state)), by = .(arm, id)]
+paths <- dcast(paths, id + entered ~ arm, value.var = c("path", "last_state"))
+head(paths[, .(id, entered, path_usual_care)])
+```
+
+The five patients, chosen from these paths:
+
+```{r chosen}
+event_free <- paths[entered == 0 & path_usual_care == paste(rep("NoEvent", 10), collapse = " > "), id][1]
+stroke <- paths[entered == 0 & grepl("NoEvent > AIS > PIS", path_usual_care), id][1]
+died <- paths[entered == 0 & last_state_usual_care == "CurrentDeath" & grepl("^NoEvent > NoEvent > NoEvent", path_usual_care), id][1]
+late <- paths[entered == 7 & path_usual_care == path_iabc, id][1]
+differs <- paths[grepl("AIS", path_usual_care) & !grepl("AIS", path_iabc), id][1]
+c(event_free = event_free, stroke = stroke, died = died, late = late, differs = differs)
+```
+
+Each patient's years in both arms, side by side:
+
+**A patient who stays event-free** for the whole horizon:
+
+```{r patient-event-free}
+dcast(sim[id == event_free], cycle + age + agegrp ~ arm, value.var = "state")
+```
+
+**A patient with an ischaemic stroke:** acute (`AIS`) in the year it happens, then past (`PIS`) in the years after:
+
+```{r patient-stroke}
+dcast(sim[id == stroke], cycle + age + agegrp ~ arm, value.var = "state")
+```
+
+**A patient who dies.** The year of death is the last year recorded:
+
+```{r patient-died}
+dcast(sim[id == died], cycle + age + agegrp ~ arm, value.var = "state")
+```
+
+**A patient who enters late**, in cycle 7 (2020), and is followed until the end of the horizon:
+
+```{r patient-late}
+dcast(sim[id == late], cycle + age + agegrp ~ arm, value.var = "state")
+```
+
+**A patient whose path differs between the arms.** Both arms use the same random number for the same patient and year,
+so the paths stay together until, in one year, the same number lands on a different state in each arm's row:
+
+```{r patient-differs}
+dcast(sim[id == differs], cycle + age + agegrp ~ arm, value.var = "state")
+```
+
+## Their costs and QALYs, by hand
+
+`tm_add_outcomes()` gives each patient-year its cost, intervention cost, QALY and discount factor:
+
+```{r outcomes}
+out <- tm_add_outcomes(sim, costs, utilities, intervention, death, settings)
+out[id == differs, .(arm, cycle, state, cost, intervention_cost, qaly, discount)]
+```
+
+The same numbers worked out by hand for the five patients, from the input tables:
+
+- **Values:** in a patient's entry year both arms take the usual-care cost and utility; from the next year, each arm's
+  own.
+- **Intervention cost:** iABC patients pay the intervention cost of that year since entry, for each year after entry
+  that they are alive.
+- **Discount factor:** a year in cycle *t* is discounted by 1 / (1 + rate)^*t*.
+
+```{r by-hand}
+costs_long <- melt(costs, id.vars = "state", variable.name = "arm", value.name = "state_cost", variable.factor = FALSE)
+utilities_long <- melt(utilities, id.vars = "state", variable.name = "arm", value.name = "utility",
+                       variable.factor = FALSE)
+followed <- c(event_free, stroke, died, late, differs)
+by_hand <- out[id %in% followed, .(id, arm, cycle, state, cost, intervention_cost, qaly, discount)]
+by_hand[, years_after_entry := cycle - min(cycle), by = id]
+by_hand[, value_arm := fifelse(years_after_entry == 0, "usual_care", arm)]
+by_hand[costs_long, on = .(state, value_arm = arm), state_cost := i.state_cost]
+by_hand[utilities_long, on = .(state, value_arm = arm), utility := i.utility]
+by_hand[, programme := fifelse(arm == "iabc" & years_after_entry > 0 & !state %in% death,
+                               intervention$cost[match(years_after_entry, intervention$year)], 0)]
+by_hand[, `:=`(cost_by_hand = state_cost + programme, discount_by_hand = 1 / (1 + settings$discount_rate)^cycle)]
+by_hand[id == differs, .(arm, cycle, state, state_cost, programme, cost_by_hand, cost)]
+by_hand[id == differs, .(arm, cycle, state, utility, qaly, discount_by_hand = round(discount_by_hand, 4),
+                         discount = round(discount, 4))]
+```
+
+Every year of the five patients, compared with the package's numbers:
+
+```{r by-hand-compare}
+by_hand[, .(years = .N, same_cost = all(cost == cost_by_hand), same_intervention_cost = all(intervention_cost == programme),
+            same_qaly = all(qaly == utility), same_discount = all(abs(discount - discount_by_hand) < 1e-12)), by = id]
+```
+
+Each patient's discounted total in each arm, which is what the arm totals add up:
+
+```{r by-hand-totals}
+dcast(by_hand[, .(cost = sum(cost_by_hand * discount_by_hand), qalys = sum(utility * discount_by_hand)), by = .(id, arm)],
+      id ~ arm, value.var = c("cost", "qalys"))
+```
+
+# How the model behaves over time
+
+## States over time
+
+To see the cohort move through the states, the next plots follow the 2,664 patients who enter in cycle 0, so later
+entrants don't blur the picture. The 19 states are grouped into five:
+
+```{r state-groups}
+state_groups <- data.table(state = states)
+state_groups[, group := fcase(state == "NoEvent", "No event",
+                              state %in% death, "Dead",
+                              state %in% c("AIS", "AHS", "AIS_AB", "AHS_AB", "PB_AIS", "PB_AHS"), "Stroke this year",
+                              state %in% c("AB", "PS_AB"), "Bleed this year",
+                              default = "Past stroke or bleed")]
+state_groups[, .(states = paste(state, collapse = ", ")), by = group]
+```
+
+Each year, the share of these patients in each group. A patient who has died stays counted as dead in later years.
+The patients already dead in cycle 0 are those whose entry state is a death state: they died in their first AF year.
+Both arms start from the same entry states, so they are the same in both arms:
+
+```{r states-over-time}
+first_entrants <- cohort[entry_cycle == 0, id]
+yearly <- sim[id %in% first_entrants][state_groups, on = "state", nomatch = NULL][, .N, by = .(arm, cycle, group)]
+# Years with nobody in a group count 0.
+yearly <- yearly[CJ(arm = c("usual_care", "iabc"), cycle = 0:(settings$horizon - 1), group = unique(state_groups$group)),
+                 on = .(arm, cycle, group)][is.na(N), N := 0L]
+alive <- yearly[group != "Dead"]
+dead <- yearly[group == "Dead"][order(cycle), .(cycle, N = cumsum(N), group = "Dead"), by = arm]
+over_time <- rbind(alive, dead)[, share := N / length(first_entrants)]
+over_time[, `:=`(group = factor(group, levels = c("Dead", "Stroke this year", "Bleed this year", "Past stroke or bleed",
+                                                  "No event")), arm = factor(arm, levels = c("usual_care", "iabc")))]
+ggplot(over_time, aes(cycle, share, fill = group)) +
+  geom_area(stat = "identity") + facet_wrap(~arm) +
+  scale_x_continuous(breaks = 0:9) + scale_y_continuous(labels = scales::percent) +
+  labs(x = "Cycle (year)", y = "Patients who entered in cycle 0", fill = NULL) +
+  theme_minimal(base_size = 10) + theme(legend.position = "top")
+dcast(over_time[cycle %in% c(0, 5, 9)], arm + group ~ paste("cycle", cycle), value.var = "share")
+```
+
+## Survival
+
+The share of these patients still alive at the end of each year, and the deaths each year in each arm. The two
+lines lie almost on top of each other: in this run, iABC changes the number of deaths among these 2,664 patients by
+only a few, as the table shows:
+
+```{r survival}
+survival <- dead[, .(arm, cycle, alive = 1 - N / length(first_entrants))]
+ggplot(survival, aes(cycle, alive, colour = arm)) +
+  geom_line() + geom_point(size = 1) + scale_colour_manual(values = arm_colours, breaks = names(arm_colours)) +
+  scale_x_continuous(breaks = 0:9) + scale_y_continuous(labels = scales::percent) +
+  labs(x = "Cycle (year)", y = "Still alive", colour = NULL) +
+  theme_minimal(base_size = 10) + theme(legend.position = "top")
+deaths_by_year <- dcast(yearly[group == "Dead"], cycle ~ arm, value.var = "N")
+deaths_by_year[, `:=`(difference = iabc - usual_care, cumulative_difference = cumsum(iabc - usual_care))]
+deaths_by_year
+```
+
+## Strokes and bleeds per year
+
+The events counted in the results (`events` in `settings.yaml`), each year, for the whole cohort. Each year a patient
+spends in one of an event's states counts as one event:
+
+```{r events}
+event_states <- setnames(as.data.table(stack(lapply(settings$events, unlist))), c("state", "event"))
+events_by_year <- sim[event_states, on = "state", allow.cartesian = TRUE, nomatch = NULL][, .N, by = .(arm, cycle, event)]
+ggplot(events_by_year, aes(cycle, N, colour = arm)) +
+  geom_line() + geom_point(size = 1) + facet_wrap(~event, scales = "free_y") + scale_colour_manual(values = arm_colours, breaks = names(arm_colours)) +
+  scale_x_continuous(breaks = 0:9) +
+  labs(x = "Cycle (year)", y = "Events in the cohort", colour = NULL) +
+  theme_minimal(base_size = 10) + theme(legend.position = "top")
+dcast(events_by_year, event ~ arm, value.var = "N", fun.aggregate = sum)[, difference := iabc - usual_care][]
+```
+
+## Costs and QALYs building up
+
+The discounted cost and QALYs per patient, added up year by year, for the whole cohort. The cost is split into the
+intervention cost and the cost of care (the state costs):
+
+```{r cumulative}
+n_patients <- uniqueN(out$id)
+by_year <- out[, .(care_cost = sum((cost - intervention_cost) * discount), intervention_cost = sum(intervention_cost * discount),
+                   qalys = sum(qaly_disc)), by = .(arm, cycle)]
+setorder(by_year, arm, cycle)
+by_year[, `:=`(care_cost = cumsum(care_cost) / n_patients, intervention_cost = cumsum(intervention_cost) / n_patients,
+               qalys = cumsum(qalys) / n_patients), by = arm]
+difference <- dcast(by_year, cycle ~ arm, value.var = c("care_cost", "intervention_cost", "qalys"))
+difference <- difference[, .(cycle, care_cost = care_cost_iabc - care_cost_usual_care,
+                             intervention_cost = intervention_cost_iabc - intervention_cost_usual_care,
+                             total_cost = care_cost_iabc + intervention_cost_iabc - care_cost_usual_care - intervention_cost_usual_care,
+                             qalys = qalys_iabc - qalys_usual_care)]
+difference
+```
+
+iABC minus usual care, added up year by year. The intervention cost is paid in the first year after each patient's
+entry, so it rises most in cycle 1 and then a little each year as later entrants reach their first year. The care
+costs saved through avoided strokes and bleeds build up over the years:
+
+```{r cumulative-plot}
+cost_parts <- melt(difference, id.vars = "cycle", measure.vars = c("care_cost", "intervention_cost", "total_cost"))
+cost_parts[, variable := factor(variable, labels = c("Care costs", "Intervention cost", "Total"))]
+ggplot(cost_parts, aes(cycle, value, colour = variable)) +
+  geom_hline(yintercept = 0, colour = "grey70") + geom_line() + geom_point(size = 1) +
+  scale_x_continuous(breaks = 0:9) +
+  labs(x = "Cycle (year)", y = "iABC minus usual care, per patient (€, discounted)", colour = NULL) +
+  theme_minimal(base_size = 10) + theme(legend.position = "top")
+ggplot(difference, aes(cycle, qalys)) +
+  geom_hline(yintercept = 0, colour = "grey70") + geom_line() + geom_point(size = 1) +
+  scale_x_continuous(breaks = 0:9) +
+  labs(x = "Cycle (year)", y = "iABC minus usual care, QALYs per patient (discounted)") +
+  theme_minimal(base_size = 10)
+```
+
+## The run's summary and comparison
+
+`tm_summarise()` adds up each arm, and `tm_compare()` takes iABC minus usual care:
+
+```{r summarise}
+one_run <- tm_summarise(out, death, settings)
+one_run
+compared <- tm_compare(copy(one_run)[, `:=`(run = 1L, seed = seed)])
+compared$overall
+```
+
+The incremental cost and QALYs are the last row of the year-by-year differences above:
+
+```{r summarise-link}
+difference[.N, .(total_cost, qalys)]
+```
+
+## Subgroups
+
+The discounted cost and QALYs of each patient, and the difference between the arms, by sex, by age group at entry
+and by cluster:
+
+```{r subgroups}
+per_patient <- out[, .(cost = sum(cost_disc), qalys = sum(qaly_disc)), by = .(id, arm)][cohort, on = "id"]
+per_patient <- dcast(per_patient, id + sex + agegrp + mm_cluster ~ arm, value.var = c("cost", "qalys"))
+per_patient[, `:=`(delta_cost = cost_iabc - cost_usual_care, delta_qalys = qalys_iabc - qalys_usual_care)]
+per_patient[, .(patients = .N, qalys_usual_care = mean(qalys_usual_care), delta_cost = mean(delta_cost),
+                delta_qalys = mean(delta_qalys)), keyby = sex]
+per_patient[, .(patients = .N, qalys_usual_care = mean(qalys_usual_care), delta_cost = mean(delta_cost),
+                delta_qalys = mean(delta_qalys)), keyby = agegrp]
+by_cluster <- per_patient[, .(patients = .N, qalys_usual_care = mean(qalys_usual_care), delta_cost = mean(delta_cost),
+                              delta_qalys = mean(delta_qalys)), keyby = mm_cluster]
+by_cluster
+```
+
+```{r subgroups-plot}
+ggplot(by_cluster, aes(reorder(mm_cluster, delta_qalys), delta_qalys)) +
+  geom_col(fill = "grey60") + geom_text(aes(label = paste(patients, "patients")), hjust = -0.1, size = 3) +
+  coord_flip() + expand_limits(y = max(by_cluster$delta_qalys) * 1.4) +
+  labs(x = NULL, y = "iABC minus usual care, QALYs per patient (discounted)") +
+  theme_minimal(base_size = 10)
+```
+
+These come from one run. In small groups, a handful of avoided events moves the average a lot, so subgroup results
+from a single run vary more than the overall result.
+
+# The full model: `tm_run()`
+
+`tm_run()` does everything above `n_runs` times. Run *r* uses seed `seed + r − 1`, so its first run is the run followed
+in this tutorial. It returns the mean over runs and writes the results to `outputs/`:
+
+```{r run}
+results <- tm_run()
+results
+```
+
+The first run of `tm_run()` and the run followed above, side by side:
+
+```{r run-first}
+rbind(cbind(source = "step by step", one_run[, .(arm, cost_per_patient, qaly_per_patient, deaths)]),
+      cbind(source = "tm_run(), run 1", results$by_run[run == 1, .(arm, cost_per_patient, qaly_per_patient, deaths)]))
+```
+
+Each point on the cost-effectiveness plane is one run; the diamond is the mean across runs:
+
+```{r run-plot}
+plot(results)
+```
+
+```{r run-files}
+list.files("outputs")
+```
