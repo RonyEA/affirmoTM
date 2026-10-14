@@ -23,5 +23,5 @@ quarto render tutorials/1-getting-started.qmd
 ```
 
 This needs [Quarto](https://quarto.org), a LaTeX installation (for example `quarto install tinytex`), and the R
-packages `devtools`, `rprojroot`, `knitr`, `data.table` and `ggplot2`. The tutorials load affirmoTM from the
+packages `devtools`, `rprojroot`, `knitr`, `rmarkdown`, `data.table` and `ggplot2`. The tutorials load affirmoTM from the
 repository, so they always show the current version of the package.

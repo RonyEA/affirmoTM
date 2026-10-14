@@ -5,7 +5,7 @@ into the `inputs/` folder of your analysis folder. Replace them with your own fi
 
 | File | What it is |
 |---|---|
-| `transition_matrix_usual_care.csv` | One-year transition probabilities under usual care, from a multinomial model fitted to the Swedish National Patient Register (SNPR), including the rows of the six death states. |
+| `transition_matrix_usual_care.csv` | One-year transition probabilities under usual care, including the rows of the six death states. Based on the model fitted to the Swedish National Patient Register (SNPR) that comes with the package (`tm_default_model()`), adjusted for this example. |
 | `transition_matrix_iabc.csv` | One-year transition probabilities under iABC, in the same layout as the usual-care matrix. **Invented example, not real data:** it only shows what a real iABC file looks like. |
 | `cohort.csv` | The patients to simulate, one per row: `id`, `age` (whole years, in the patient's entry cycle, not at cycle 0), `sex`, `mm_cluster`, and `entry_cycle` (the cycle in which the patient enters; 0 = 2013; patients entering in cycle `horizon` or later are left out, with a warning). The example holds 5,000 patients aged 65+ with atrial fibrillation, sampled from an IMPACT_AF synthetic population, entering between 2013 and 2022. An `agegrp` column is optional: if it's missing, it is worked out from `age`. |
 | `entry_states.csv` | The probability of each state in a patient's entry year (their first AF year), one row per age group, sex and cluster; every row sums to 1. Shared by both arms. The example comes from the IMPACT_AF entry table. |

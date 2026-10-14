@@ -1,6 +1,3 @@
-# Source files and scripts that build the shipped data (local only)
-data-raw/
-
 # R session files
 .Rhistory
 .RData

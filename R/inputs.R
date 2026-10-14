@@ -47,7 +47,10 @@ input_path <- function(name) {
 #' @return A list of settings.
 #' @export
 tm_read_settings <- function() {
-  settings <- yaml::read_yaml(input_path("settings"))
+  path <- input_path("settings")
+  # Read the file as UTF-8 whatever the session's encoding, so that `€` also works in a non-UTF-8 session.
+  text <- readLines(path, encoding = "UTF-8", warn = FALSE)
+  settings <- yaml::yaml.load(paste(text, collapse = "\n"), error.label = path)
   if (is.null(settings$strata)) {
     stop("inputs/settings.yaml needs a `strata` entry (use `strata: []` for none).", call. = FALSE)
   }

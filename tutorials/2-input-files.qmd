@@ -43,6 +43,7 @@ This tutorial starts from a fresh analysis folder with the example input files (
 ```{r start}
 #| eval: false
 library(affirmoTM)
+library(data.table)  # for fread(), fwrite() and the other table functions used below
 ```
 
 ```{r example-inputs}

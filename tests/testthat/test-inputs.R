@@ -14,6 +14,12 @@ test_that("settings need a strata entry, which may be empty", {
   expect_identical(tm_read_settings()$strata, character(0))
 })
 
+test_that("settings with a non-ASCII currency are read in any session encoding", {
+  local_toy_project(settings = toy_settings(currency = "\u20ac"))
+  withr::local_locale(c(LC_CTYPE = "C"))
+  expect_identical(tm_read_settings()$currency, "\u20ac")
+})
+
 test_that("every setting is checked, with a message naming it", {
   read_with <- function(...) {
     local_toy_project(settings = toy_settings(...))

@@ -55,6 +55,8 @@ It starts from a fresh analysis folder with the example input files (see tutoria
 ```{r start}
 #| eval: false
 library(affirmoTM)
+library(data.table)  # for dcast(), melt() and the other table functions used below
+library(ggplot2)     # for the plots
 ```
 
 ```{r example-inputs}

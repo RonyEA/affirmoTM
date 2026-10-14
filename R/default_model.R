@@ -85,8 +85,7 @@ check_coef_vcov_design <- function(coef, vcov, design) {
   if (!identical(colnames(vcov), expected) || !identical(rownames(vcov), expected)) {
     stop("vcov names do not follow the coefficient order (outcome by outcome, as 'state:term').", call. = FALSE)
   }
-  # The default vcov is symmetric only up to floating-point noise (largest difference 2e-7
-  # against entries up to 627), so symmetry is checked with a relative tolerance.
+  # A fitted vcov may be symmetric only up to floating-point noise, so symmetry is checked with a relative tolerance.
   if (!isSymmetric(unname(vcov), tol = 1e-8)) {
     stop("vcov is not symmetric (relative tolerance 1e-8).", call. = FALSE)
   }

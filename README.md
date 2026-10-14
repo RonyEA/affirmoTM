@@ -13,7 +13,7 @@ You supply the inputs as CSV files: the transition matrices, the cohort, entry s
 
 ## Installation
 
-You need [R](https://cran.r-project.org) and, ideally, RStudio or Positron.
+You need [R](https://cran.r-project.org) 4.1 or later and, ideally, RStudio or Positron.
 
 ```r
 install.packages("remotes")
@@ -134,7 +134,8 @@ A few points about the layouts:
 
 The example files are for learning the package, not for drawing conclusions:
 
-- The **usual-care matrix** comes from a multinomial model fitted to the Swedish National Patient Register.
+- The **usual-care matrix** is based on the model fitted to the Swedish National Patient Register that comes with the
+  package (`tm_default_model()`), adjusted for this example.
 - The **iABC matrix, costs, utilities and intervention cost are invented**, to show what real files look like. The
   costs and utilities are the same in both arms, and iABC is a one-year programme costing €50 per patient in the first
   year after entry. With these values iABC comes out cheaper and better (dominant).

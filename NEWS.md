@@ -1,9 +1,5 @@
 # affirmoTM 1.0.0
 
-First stable release. The model, its inputs and its results are the same as in 0.1.0.
-
-# affirmoTM 0.1.0
-
 First release.
 
 * `tm_run()` runs the transition model for iABC and usual care from the input files in `inputs/` and writes the

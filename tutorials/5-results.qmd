@@ -43,6 +43,7 @@ This tutorial starts from a fresh analysis folder with the example input files, 
 ```{r start}
 #| eval: false
 library(affirmoTM)
+library(data.table)  # for fread()
 ```
 
 ```{r run}
@@ -105,13 +106,13 @@ results$comparison
 - `icer`: the mean incremental cost divided by the mean incremental QALYs.
 - `quadrant`: where the result lies on the CE plane. It says how to read the ICER:
 
-| `quadrant` | iABC compared with usual care | Printed as |
-|--------------------------|----------------------------------|----------------------|
-| `costlier, more QALYs` | Costs more, gives more QALYs | € ... per QALY gained |
-| `dominant` | Costs less (or the same), gives more QALYs | iABC dominant |
-| `dominated` | Costs more (or the same), gives fewer QALYs | iABC dominated |
-| `cheaper, fewer QALYs` | Costs less, gives fewer QALYs | € ... saved per QALY lost |
-| `no QALY difference` | The same QALYs | undefined |
+| `quadrant` | iABC compared with usual care | Printed as, for example |
+|--------------------|-------------------------------------|---------------------------------|
+| `costlier, more QALYs` | Costs more, gives more QALYs | €12,400 per QALY gained |
+| `dominant` | Costs less (or the same), gives more QALYs | iABC dominant (cheaper, more QALYs) |
+| `dominated` | Costs more (or the same), gives fewer QALYs | iABC dominated (costlier, fewer QALYs) |
+| `cheaper, fewer QALYs` | Costs less, gives fewer QALYs | €8,150 saved per QALY lost |
+| `no QALY difference` | The same QALYs | undefined (no difference in QALYs) |
 
 
 The same differences for each run:

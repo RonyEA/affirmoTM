@@ -86,7 +86,7 @@ to death.
 
 # Installing affirmoTM
 
-You need R, and an editor such as RStudio or Positron. Install affirmoTM once; R also installs the packages it needs.
+You need R 4.1 or later, and an editor such as RStudio or Positron. Install affirmoTM once; R also installs the packages it needs.
 
 From GitHub:
 
