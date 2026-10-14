@@ -1,3 +1,7 @@
+# affirmoTM 1.0.0
+
+First stable release. The model, its inputs and its results are the same as in 0.1.0.
+
 # affirmoTM 0.1.0
 
 First release.

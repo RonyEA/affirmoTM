@@ -26,7 +26,7 @@ To install a particular release, for example to repeat an earlier analysis, add 
 the GitHub page):
 
 ```r
-remotes::install_github("RonyEA/affirmoTM@v0.1.0")
+remotes::install_github("RonyEA/affirmoTM@v1.0.0")
 ```
 
 ## Quick start
